@@ -3,7 +3,42 @@ name = "joya"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
 [dependencies]
+# UI — gpui/gpui_platform pinned to the exact rev gpui-component depends on, so a
+# single gpui version is in the graph (it has Wayland layer-shell support).
 gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
+
+# Audio capture / resampling / VAD (reused from cuteview).
+cpal = { git = "https://github.com/RustAudio/cpal.git", rev = "abc0cc26abe21f862978972b66699605086586e3", features = ["pipewire"] }
+rubato = "2.0.0"
+voice_activity_detector = "0.2.1"
+
+# Async + networking.
+tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+futures = "0.3.32"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+flume = "0.12.0"
+
+# Serialization / config.
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1"
+yaml_serde = "0.10.4"
+schemars = "0.8"
+
+# Misc.
+base64 = "0.22"
+anyhow = "1.0.102"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+clap = { version = "4", features = ["derive"] }
+etcetera = "0.11.0"
+
+[patch.crates-io]
+voice_activity_detector = { path = "./crates/voice_activity_detector" }
