@@ -14,6 +14,10 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac10
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit", "wayland", "runtime_shaders"] }
 
+# Screen capture (wlr-screencopy) + image encoding for the translation overlay.
+libwayshot = "0.8"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
 # Audio capture / resampling / VAD (reused from cuteview).
 cpal = { git = "https://github.com/RustAudio/cpal.git", rev = "abc0cc26abe21f862978972b66699605086586e3", features = ["pipewire"] }
 rubato = "2.0.0"
@@ -34,11 +38,21 @@ schemars = "0.8"
 
 # Misc.
 base64 = "0.22"
+uuid = { version = "1", features = ["v5"] } # match gpui displays by output name (gpui exposes only uuid = v5(name))
 anyhow = "1.0.102"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 etcetera = "0.11.0"
+dark-light = "2.0.0" # detect OS light/dark appearance to pick the UI palette
 
 [patch.crates-io]
 voice_activity_detector = { path = "./crates/voice_activity_detector" }
+
+# Local fork of zed at the pinned rev, carrying a tiny patch that adds
+# `LayerShellOptions.pointer_passthrough` (empty input region → click-through) so
+# the full-screen translation overlay doesn't intercept clicks. Redirects every
+# git-sourced gpui in the graph (incl. gpui-component's) to the single fork.
+[patch."https://github.com/zed-industries/zed"]
+gpui = { path = "../joya-gpui-fork/crates/gpui" }
+gpui_platform = { path = "../joya-gpui-fork/crates/gpui_platform" }

@@ -16,6 +16,8 @@ pub struct Config {
     pub mistral: MistralConfig,
     #[serde(default)]
     pub cerebras: CerebrasConfig,
+    #[serde(default)]
+    pub overlay: OverlayConfig,
 }
 
 /// Which side of the call Joya translates for. Each direction is an independent
@@ -223,6 +225,54 @@ pub struct CerebrasConfig {
     pub reasoning_effort: String,
 }
 
+/// On-screen text-translation overlay. Wholly independent of the voice pipeline
+/// (`audio.*`): a separate full-screen, click-through layer-shell window that
+/// periodically screenshots the screen, asks Gemma 4 (multimodal) what text is
+/// *not* already in your reading `language`, and floats the translations over
+/// the original text at the right screen coordinates. Reuses [`CerebrasConfig`]
+/// for inference — there's no separate API endpoint here.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct OverlayConfig {
+    /// Enable the on-screen text-translation overlay. Disabled by default.
+    #[serde(default)]
+    pub enabled: bool,
+    /// The language *you read*. On-screen text already in this language is left
+    /// alone; anything else is translated into it.
+    #[serde(default = "default_target")]
+    pub language: String,
+    /// Which monitor to translate, by Wayland output name (e.g. `DP-1`, `eDP-1`
+    /// — run `wlr-randr` or `hyprctl monitors` to list them). The overlay window
+    /// and the screenshots both target this output, so they always match. `null`
+    /// uses the primary display.
+    #[serde(default)]
+    pub output: Option<String>,
+    /// How often to screenshot the screen and ask the model, in milliseconds.
+    #[serde(default = "default_overlay_interval_ms")]
+    pub interval_ms: u64,
+    /// Overlay text size, in logical pixels.
+    #[serde(default = "default_overlay_font_px")]
+    pub font_px: f32,
+}
+
+impl Default for OverlayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            language: default_target(),
+            output: None,
+            interval_ms: default_overlay_interval_ms(),
+            font_px: default_overlay_font_px(),
+        }
+    }
+}
+
+fn default_overlay_interval_ms() -> u64 {
+    3000
+}
+fn default_overlay_font_px() -> f32 {
+    16.0
+}
+
 fn default_true() -> bool {
     true
 }
@@ -331,6 +381,7 @@ impl Default for Config {
             languages: LanguageConfig::default(),
             mistral: MistralConfig::default(),
             cerebras: CerebrasConfig::default(),
+            overlay: OverlayConfig::default(),
         }
     }
 }
