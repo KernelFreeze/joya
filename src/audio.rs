@@ -25,7 +25,7 @@ const SPEECH_THRESHOLD: f32 = 0.5;
 // 32 chunks * 512 samples / 16000 Hz ≈ 1s of silence before end-of-utterance.
 const SILENCE_CHUNKS_FOR_RESET: usize = 32;
 // Pre-speech chunks replayed when speech starts, so the first words aren't clipped.
-const LOOKBACK_CHUNKS: usize = 8;
+const LOOKBACK_CHUNKS: usize = 32;
 // Log the input level this often so you can see whether samples are arriving
 // and whether the mic is live but quiet (below VAD threshold) vs. truly silent.
 const LEVEL_LOG_INTERVAL_SECS: f64 = 0.5;
