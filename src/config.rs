@@ -84,11 +84,12 @@ pub struct RelayConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
     /// Where the other party's voice is captured from. For loop-free `relay`,
-    /// set this to `call_remote.monitor` — the monitor of the isolation sink
-    /// created by `scripts/setup-virtual-mic.sh` — so `relay` hears only the
-    /// other party and never Joya's own TTS. `null` uses the default output's
-    /// monitor (your headphones), which also captures Joya's TTS and will loop.
-    /// Run `list-devices` for names/ids.
+    /// set this to `call_remote` — the isolation sink created by
+    /// `scripts/setup-virtual-mic.sh`, whose monitor cpal exposes under the sink
+    /// node name (no `.monitor` suffix) — so `relay` hears only the other party
+    /// and never Joya's own TTS. `null` uses the default output's monitor (your
+    /// headphones), which also captures Joya's TTS and will loop. Run
+    /// `list-devices` for names/ids.
     #[serde(default)]
     pub capture_device: Option<String>,
 }

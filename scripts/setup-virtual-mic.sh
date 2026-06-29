@@ -38,7 +38,7 @@
 # After loading, in Joya's config.yaml:
 #   audio:
 #     relay:
-#       capture_device: call_remote.monitor
+#       capture_device: call_remote
 #     output:
 #       mic_sink: joya_mic
 # And in your call app (Discord/Zoom/…):
@@ -108,7 +108,7 @@ else
     pactl load-module module-loopback \
         source="${REMOTE_SINK}.monitor" \
         sink="${LISTEN_SINK}" \
-        latency_msec=1 >/dev/null
+        latency_msec=50 >/dev/null
     echo "Created loopback '${REMOTE_SINK}.monitor → ${LISTEN_SINK}'."
 fi
 
@@ -123,11 +123,13 @@ In your call app (Discord/Zoom/…):
 In Joya's config.yaml:
   audio:
     relay:
-      capture_device: ${REMOTE_SINK}.monitor
+      capture_device: ${REMOTE_SINK}
     output:
       mic_sink: ${MIC_SINK}
 
-Run \`cargo run -- list-devices\` to confirm the exact capture name/id (the
-monitor source is listed under Input devices, e.g. id: ${REMOTE_SINK}.monitor).
+Run \`cargo run -- list-devices\` to confirm the exact capture name/id. The
+isolation sink's monitor is listed under Input devices as "Call_Remote" with
+id: ${REMOTE_SINK} (cpal exposes the monitor under the sink's node name, without
+a .monitor suffix).
 Tip: set JOYA_LISTEN_SINK=<sink> to hear the other party on a non-default output.
 EOF
