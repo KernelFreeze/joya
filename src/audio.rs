@@ -1,6 +1,6 @@
 //! Audio capture + voice-activity detection.
 //!
-//! Adapted from cuteview's `transcribe.rs`: cpal input stream → mono downmix →
+//! cpal input stream → mono downmix →
 //! rubato resample to 16 kHz → Silero VAD. Instead of running a local STT model,
 //! we emit PCM16 speech frames (gated by the VAD) and an end-of-utterance marker
 //! that downstream streams to Voxtral Realtime.

@@ -46,7 +46,7 @@ fn run_app(cx: &mut App) {
 
     let strategy = choose_app_strategy(AppStrategyArgs {
         top_level_domain: "dev".to_string(),
-        author: "Celeste Love".to_string(),
+        author: "CelesteLove".to_string(),
         app_name: "Joya".to_string(),
     })
     .unwrap();

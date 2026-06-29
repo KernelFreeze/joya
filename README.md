@@ -2,7 +2,7 @@
 
 `Joya` is a real-time voice-to-voice translator built in Rust with [GPUI](https://www.gpui.rs/) and [GPUI Component](https://longbridge.github.io/gpui-component/). It listens to the other side of a call, translates what's said, and speaks it back in your language fast enough to hold a conversation.
 
-Built for the [Cerebras and Google DeepMind Gemma 4 Hackathon](docs/Gemma%204%20Hackathon.md).
+Built for the Cerebras and Google DeepMind Gemma 4 Hackathon.
 
 ## Name
 

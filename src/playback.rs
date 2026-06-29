@@ -3,11 +3,6 @@
 //! `self` direction's translation) and/or your own headphones (so you hear the
 //! `relay` direction's translation, and your own outgoing translation when
 //! monitoring).
-//!
-//! cuteview had no playback path, so this is new. Each output device gets a cpal
-//! stream backed by a shared sample buffer; `submit` resamples the TTS audio to
-//! the device rate and enqueues it.
-
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -134,7 +129,11 @@ fn open_sink(host: &cpal::Host, name: Option<&str>) -> anyhow::Result<Sink> {
     )?;
     stream.play()?;
 
-    Ok(Sink { buffer, sample_rate, _stream: stream })
+    Ok(Sink {
+        buffer,
+        sample_rate,
+        _stream: stream,
+    })
 }
 
 /// Linear-interpolation resampler. Adequate for speech; avoids a stateful

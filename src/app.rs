@@ -1,11 +1,3 @@
-//! GPUI overlay app. Mirrors cuteview's entity shape: workers feed a flume
-//! channel, a `cx.spawn` receiver loop updates state, and `Render` paints it.
-//!
-//! In dual mode (both `relay` and `self` enabled) two pipelines run at once,
-//! each capturing its own device and driving its own STT/translate/TTS chain.
-//! Per-direction partials, stage, and entries are tracked independently and
-//! color-coded: `relay` gold, `self` teal.
-
 use std::collections::HashMap;
 
 use gpui::{
