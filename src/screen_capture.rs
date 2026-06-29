@@ -7,7 +7,7 @@
 
 use anyhow::{Context, Result};
 use base64::Engine;
-use image::DynamicImage;
+use image::{DynamicImage, imageops::FilterType};
 use libwayshot::WayshotConnection;
 
 /// One output's identity and logical geometry, used by `main` to correlate a
@@ -52,7 +52,7 @@ impl ScreenCapturer {
         Ok(Self { conn, output })
     }
 
-    /// Capture the configured output (no cursor) as an image.
+    /// Capture the configured output (no cursor), downscaled (see [`downscale`]).
     pub fn capture(&self) -> Result<DynamicImage> {
         let outputs = self.conn.get_all_outputs();
         let output = match &self.output {
@@ -62,10 +62,34 @@ impl ScreenCapturer {
                 .with_context(|| format!("output {name:?} not found"))?,
             None => outputs.first().context("no Wayland outputs to capture")?,
         };
-        self.conn
+        let image = self
+            .conn
             .screenshot_single_output(output, false)
-            .context("wlr-screencopy capture failed")
+            .context("wlr-screencopy capture failed")?;
+        Ok(downscale(image))
     }
+}
+
+/// Gemma reprocesses every screenshot down to ~1056×576 before tokenizing, so
+/// sending more than ~1280px on the long side is wasted JPEG-encode and upload
+/// with no extra detail the model can see. Cap the long side; smaller frames
+/// (and the per-frame change check) pass through untouched.
+const MAX_LONG_SIDE: u32 = 1280;
+
+fn downscale(image: DynamicImage) -> DynamicImage {
+    if image.width().max(image.height()) <= MAX_LONG_SIDE {
+        return image;
+    }
+    image.resize(MAX_LONG_SIDE, MAX_LONG_SIDE, FilterType::Lanczos3)
+}
+
+/// A cheap content hash of a captured frame, used to skip the model call when
+/// the screen hasn't changed since the last tick.
+pub fn frame_hash(image: &DynamicImage) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    image.as_bytes().hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Encode an image as JPEG and wrap it as a base64 data URI for the chat API.
