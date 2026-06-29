@@ -19,6 +19,20 @@ There are two directions, toggleable in `config.yaml` and runnable at once for a
 
 In dual mode the two are color-coded in the overlay, and `self` translates the opposite way from `relay`, so the pair forms a matched interpreter.
 
+## Screen translation
+
+Joya also reads the screen. Independent of the voice pipeline, it opens a full-screen click-through overlay on one monitor, screenshots that monitor every few seconds, and asks Gemma 4 (multimodal, over Cerebras) which on-screen text is not already in your reading language. The translations float over the original text at the coordinates the model reports. Window chrome, the taskbar, address bars, and other UI are ignored; only document and content text is translated.
+
+Updates are incremental to avoid jitter. Each call gets the overlays already on screen and returns only the text that just appeared plus the ids whose source text is still visible. Stable text stays where it is, and a scene change clears the stale overlays at once. When a frame hashes identical to the last one, Joya skips the model call entirely.
+
+It reuses the Cerebras config and `CEREBRAS_API_KEY`; there's no separate endpoint. Configure it under `overlay.*`:
+
+- `overlay.enabled` — off by default.
+- `overlay.language` — the language you read. Text already in it is left alone; everything else is translated into it.
+- `overlay.output` — which monitor to translate, by Wayland output name (`DP-1`, `eDP-1`; list them with `wlr-randr` or `hyprctl monitors`). `null` uses the primary display. The overlay window and the screenshots both target this output.
+- `overlay.interval_ms` — screenshot/translate cadence in milliseconds (default 3000).
+- `overlay.font_px` — overlay text size in logical pixels (default 16).
+
 ## Setup
 
 ### 1. API keys
