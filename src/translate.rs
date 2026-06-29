@@ -8,11 +8,10 @@ use serde_json::json;
 
 use crate::config::{CerebrasConfig, LanguageConfig};
 
-/// A completed translation plus the model's reasoning, when returned.
+/// A completed translation.
 #[derive(Debug, Clone)]
 pub struct Translation {
     pub translated: String,
-    pub reasoning: Option<String>,
 }
 
 pub struct Translator {
@@ -45,7 +44,6 @@ impl Translator {
                 { "role": "user", "content": text },
             ],
             "reasoning_effort": self.config.reasoning_effort,
-            "reasoning_format": "parsed",
             "stream": false,
         });
 
@@ -74,7 +72,6 @@ impl Translator {
 
         Ok(Translation {
             translated: message.content.unwrap_or_default().trim().to_string(),
-            reasoning: message.reasoning.filter(|r| !r.trim().is_empty()),
         })
     }
 }
@@ -93,6 +90,4 @@ struct Choice {
 struct ChoiceMessage {
     #[serde(default)]
     content: Option<String>,
-    #[serde(default)]
-    reasoning: Option<String>,
 }

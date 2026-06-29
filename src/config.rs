@@ -18,37 +18,156 @@ pub struct Config {
     pub cerebras: CerebrasConfig,
 }
 
-/// Audio routing. Joya listens to one output/monitor device and plays the
-/// synthesized translation back to a virtual mic sink (so the other party hears
-/// it) and, optionally, to your own speakers.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct AudioConfig {
-    /// Output/monitor device to listen to (the other party's audio). Run with
-    /// `list-devices` to see names. `null` uses the default output device.
-    #[serde(default)]
-    pub capture_device: Option<String>,
-    /// Virtual null-sink to play the translation into, e.g. `joya_mic`. The
-    /// sink's monitor is what you select as the microphone in your call app.
-    /// `null` disables feeding audio back to the call.
-    #[serde(default)]
-    pub mic_sink: Option<String>,
-    /// Also play the translation on your own speakers so you can hear it.
-    #[serde(default = "default_true")]
-    pub monitor_self: bool,
-    /// Device used for self-monitoring. `null` uses the default output device.
-    #[serde(default)]
-    pub playback_device: Option<String>,
+/// Which side of the call Joya translates for. Each direction is an independent
+/// pipeline (capture → STT → Gemma → TTS → playback), and **both can run at
+/// once** so the other party's speech is translated for you *and* your speech is
+/// translated for them simultaneously. Color-coded in the overlay: `relay` is
+/// gold, `self` is teal.
+///
+/// Languages are framed from *your* point of view: `languages.source` is the
+/// language you speak, `languages.target` is the language the other party speaks.
+/// `self` translates `source → target` (you → them); `relay` translates the
+/// swapped pair, `target → source` (them → you).
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
+pub enum Direction {
+    /// Capture the other party's voice from an output/monitor device (your
+    /// headphones), translate it into your language, and play it to your
+    /// headphones so *you* hear it. Flow: **headphones → STT → Gemma → TTS →
+    /// headphones**.
+    #[serde(rename = "relay")]
+    #[default]
+    Relay,
+    /// Capture your own voice from a microphone, translate it into the other
+    /// party's language, and play it into the virtual mic sink so *they* hear it
+    /// (and, when `output.monitor_self`, on your own headphones too). Flow:
+    /// **microphone → STT → Gemma → TTS → mic (+ headphones when monitoring)**.
+    ///
+    /// Watch for feedback: if your microphone can hear your playback device, the
+    /// translated speech gets re-captured and Joya chases its own tail. Use
+    /// headphones, or route playback to a device the mic can't hear.
+    #[serde(rename = "self")]
+    SelfMode,
 }
 
-/// Source/target languages for the translation step.
+/// Audio routing. Joya can run one or two directions at once: `relay` (capture
+/// the other party from your headphones, play the translation to your
+/// headphones) and `self` (capture your microphone, play the translation to the
+/// call). Each is independently enabled, so dual mode is just both `enabled:
+/// true`. When both run, the two pipelines feed the same overlay, color-coded by
+/// direction.
+///
+/// Output sinks/playback devices live in [`OutputConfig`], shared by both
+/// directions — there's no per-direction sink setup. A single virtual mic sink
+/// feeds the call (for `self`), and a single playback device plays to your
+/// headphones (for `relay`, and for `self` when `monitor_self`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AudioConfig {
+    /// Relay direction: headphones → STT → Gemma → TTS → headphones. Enabled by
+    /// default — this is the original Joya flow.
+    #[serde(default = "default_relay")]
+    pub relay: RelayConfig,
+    /// Self direction: microphone → STT → Gemma → TTS → mic (+ headphones when
+    /// `output.monitor_self`). Disabled by default.
+    #[serde(default, rename = "self")]
+    pub self_mode: SelfConfig,
+    /// Shared output routing (mic sink + playback device) for both directions.
+    #[serde(default)]
+    pub output: OutputConfig,
+}
+
+/// Relay-direction capture: the other party's voice coming through your
+/// headphones (or an output monitor). The translation plays to
+/// `output.playback_device` — see [`OutputConfig`].
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RelayConfig {
+    /// Enable this direction. `false` skips spawning its pipeline.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Where the other party's voice is captured from. For loop-free `relay`,
+    /// set this to `call_remote.monitor` — the monitor of the isolation sink
+    /// created by `scripts/setup-virtual-mic.sh` — so `relay` hears only the
+    /// other party and never Joya's own TTS. `null` uses the default output's
+    /// monitor (your headphones), which also captures Joya's TTS and will loop.
+    /// Run `list-devices` for names/ids.
+    #[serde(default)]
+    pub capture_device: Option<String>,
+}
+
+/// Self-direction capture: your microphone. The translation plays to
+/// `output.mic_sink` (the call) and, when `output.monitor_self`, to
+/// `output.playback_device` too — see [`OutputConfig`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct SelfConfig {
+    /// Enable this direction. `false` (the default) skips spawning its pipeline.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Microphone to capture your voice from. `null` uses the default input
+    /// device. Run `list-devices` for names.
+    #[serde(default)]
+    pub capture_device: Option<String>,
+}
+
+/// Shared output routing for translations, independent of which direction
+/// produced them. Both directions draw from this one config — there's no
+/// per-direction sink/playback setup — so a single virtual mic sink and a single
+/// local playback device serve the whole app, letting both the other party (via
+/// the call) and yourself (via your headphones) hear translations.
+///
+/// Routing by direction:
+/// - `self` (you → other party): plays to `mic_sink` (the call), and, when
+///   `monitor_self` is set, also to `playback_device` so you hear your own
+///   outgoing translation.
+/// - `relay` (other party → you): plays to `playback_device` (your headphones).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct OutputConfig {
+    /// Virtual null-sink to feed translations into the call, e.g. `joya_mic`. The
+    /// sink's monitor is what you select as the microphone in your call app so the
+    /// other party hears the `self` direction's translation. `null` disables
+    /// feeding the call — the `self` direction will have no audible output unless
+    /// `monitor_self` is set.
+    #[serde(default)]
+    pub mic_sink: Option<String>,
+    /// Local output device (your headphones/speakers) for translations you hear:
+    /// the `relay` direction always, and the `self` direction when `monitor_self`
+    /// is set. `null` uses the default output device.
+    #[serde(default)]
+    pub playback_device: Option<String>,
+    /// Also play the `self` direction's outgoing translation on `playback_device`
+    /// so you hear what's being sent to the call. Use headphones to avoid the mic
+    /// re-capturing the playback (feedback).
+    #[serde(default = "default_true")]
+    pub monitor_self: bool,
+}
+
+/// Source/target languages for translation, framed from *your* point of view.
+/// `source` is the language you speak (the `self` direction's input); `target`
+/// is the language the other party speaks (the `relay` direction's input). The
+/// `self` direction translates `source → target`; `relay` translates the swapped
+/// pair, `target → source`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LanguageConfig {
-    /// Spoken language of the other party. `null` lets the model auto-detect.
+    /// The language *you* speak — the `self` direction's input. `null` lets the
+    /// model auto-detect your speech. Note: when `null`, the `relay` direction
+    /// can't know your language to translate *into*, so it falls back to the
+    /// default target language — set `source` explicitly for two-way use.
     #[serde(default)]
     pub source: Option<String>,
-    /// Language to translate into and speak back.
+    /// The language the *other party* speaks — the `relay` direction's input,
+    /// and the language the `self` direction translates into to speak to them.
     #[serde(default = "default_target")]
     pub target: String,
+}
+
+impl LanguageConfig {
+    /// The reverse direction: your language and the other party's swap places.
+    /// Used by the `relay` direction so it translates the other party's speech
+    /// (their language) into your language — the mirror of `self`.
+    pub fn swapped(&self) -> LanguageConfig {
+        LanguageConfig {
+            source: Some(self.target.clone()),
+            target: self.source.clone().unwrap_or_else(default_target),
+        }
+    }
 }
 
 /// Mistral Voxtral endpoints (realtime STT over WebSocket + TTS over REST).
@@ -69,8 +188,10 @@ pub struct MistralConfig {
     /// Voxtral TTS model.
     #[serde(default = "default_tts_model")]
     pub tts_model: String,
-    /// TTS voice id. Empty lets the API pick its default. Discover ids via the
-    /// provider's `/audio/voices` endpoint.
+    /// TTS voice id. The Voxtral TTS API requires a voice on every request
+    /// (there is no server-side default). When left empty, Joya auto-selects
+    /// the first id returned by the provider's `/audio/voices` endpoint on
+    /// the first utterance and caches it. Set this to pin a specific voice.
     #[serde(default)]
     pub tts_voice: String,
 }
@@ -129,12 +250,34 @@ fn default_reasoning_effort() -> String {
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
-            capture_device: None,
-            mic_sink: None,
-            monitor_self: true,
-            playback_device: None,
+            relay: default_relay(),
+            self_mode: SelfConfig::default(),
+            output: OutputConfig::default(),
         }
     }
+}
+
+impl Default for RelayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            capture_device: None,
+        }
+    }
+}
+
+impl Default for OutputConfig {
+    fn default() -> Self {
+        Self {
+            mic_sink: None,
+            playback_device: None,
+            monitor_self: true,
+        }
+    }
+}
+
+fn default_relay() -> RelayConfig {
+    RelayConfig::default()
 }
 
 impl Default for LanguageConfig {

@@ -1,5 +1,8 @@
-//! Plays synthesized speech to one or two output devices: the virtual mic sink
-//! (so the other party hears the translation) and, optionally, your own speakers.
+//! Plays synthesized speech to one or two output devices, drawn from the
+//! shared [`OutputConfig`]: the virtual mic sink (so the other party hears the
+//! `self` direction's translation) and/or your own headphones (so you hear the
+//! `relay` direction's translation, and your own outgoing translation when
+//! monitoring).
 //!
 //! cuteview had no playback path, so this is new. Each output device gets a cpal
 //! stream backed by a shared sample buffer; `submit` resamples the TTS audio to
@@ -11,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use tracing::{error, info, warn};
 
+use crate::config::{Direction, OutputConfig};
 use crate::tts::TtsAudio;
 
 struct Sink {
@@ -26,33 +30,53 @@ pub struct Player {
 }
 
 impl Player {
-    /// Opens a sink for `mic_sink` (when set) and, when `monitor_self`, for
-    /// `playback_device` (default output when `None`).
-    pub fn new(
-        mic_sink: Option<&str>,
-        playback_device: Option<&str>,
-        monitor_self: bool,
-    ) -> Self {
+    /// Opens the right output sinks for `direction`, drawn from the shared
+    /// [`OutputConfig`].
+    ///
+    /// In `relay` mode (other party → you): plays to `playback_device` (your
+    /// headphones, or the default output when `null`).
+    ///
+    /// In `self` mode (you → other party): plays to `mic_sink` (the call), and,
+    /// when `output.monitor_self`, also to `playback_device` so you hear your own
+    /// outgoing translation.
+    pub fn new(direction: Direction, output: &OutputConfig) -> Self {
         let host = cpal::default_host();
         let mut sinks = Vec::new();
 
-        if let Some(name) = mic_sink {
-            match open_sink(&host, Some(name)) {
+        match direction {
+            // Relay: other party → you. You hear the translation on
+            // `playback_device` (your headphones, or the default output).
+            Direction::Relay => match open_sink(&host, output.playback_device.as_deref()) {
                 Ok(sink) => {
-                    info!("Playback: virtual mic sink '{name}' @ {}Hz", sink.sample_rate);
+                    info!("Playback: relay output @ {}Hz", sink.sample_rate);
                     sinks.push(sink);
                 }
-                Err(e) => error!("Failed to open mic sink '{name}': {e}"),
-            }
-        }
-
-        if monitor_self {
-            match open_sink(&host, playback_device) {
-                Ok(sink) => {
-                    info!("Playback: self-monitor @ {}Hz", sink.sample_rate);
-                    sinks.push(sink);
+                Err(e) => error!("Failed to open relay output: {e}"),
+            },
+            // Self: you → other party. Feed the call via `mic_sink`, and, when
+            // `monitor_self`, also play on `playback_device` so you hear it.
+            Direction::SelfMode => {
+                if let Some(name) = &output.mic_sink {
+                    match open_sink(&host, Some(name)) {
+                        Ok(sink) => {
+                            info!(
+                                "Playback: virtual mic sink '{name}' @ {}Hz",
+                                sink.sample_rate
+                            );
+                            sinks.push(sink);
+                        }
+                        Err(e) => error!("Failed to open mic sink '{name}': {e}"),
+                    }
                 }
-                Err(e) => error!("Failed to open self-monitor output: {e}"),
+                if output.monitor_self {
+                    match open_sink(&host, output.playback_device.as_deref()) {
+                        Ok(sink) => {
+                            info!("Playback: self-monitor @ {}Hz", sink.sample_rate);
+                            sinks.push(sink);
+                        }
+                        Err(e) => error!("Failed to open self-monitor output: {e}"),
+                    }
+                }
             }
         }
 

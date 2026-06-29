@@ -36,7 +36,12 @@ enum Commands {
 }
 
 fn run_app(cx: &mut App) {
-    tracing_subscriber::fmt::init();
+    // Default to `info` so capture/VAD/pipeline logs are visible without forcing
+    // the user to set RUST_LOG. `RUST_LOG` still wins when set, so `RUST_LOG=debug`
+    // or `RUST_LOG=joya=trace` works for deeper digging.
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    tracing_subscriber::fmt().with_env_filter(filter).init();
     gpui_component::init(cx);
 
     let strategy = choose_app_strategy(AppStrategyArgs {
@@ -54,7 +59,9 @@ fn run_app(cx: &mut App) {
     } else {
         let config = config::Config::default();
         std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
-        config.write(&config_path).expect("failed to write default config");
+        config
+            .write(&config_path)
+            .expect("failed to write default config");
         config
     };
 
