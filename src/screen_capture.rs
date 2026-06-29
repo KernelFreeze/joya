@@ -52,7 +52,10 @@ impl ScreenCapturer {
         Ok(Self { conn, output })
     }
 
-    /// Capture the configured output (no cursor), downscaled (see [`downscale`]).
+    /// Capture the configured output (no cursor) at full resolution. Downscaling
+    /// is left to the caller (see [`downscale`]) so the overlay can re-show itself
+    /// the instant the pixels are grabbed, instead of staying hidden through the
+    /// much slower resize.
     pub fn capture(&self) -> Result<DynamicImage> {
         let outputs = self.conn.get_all_outputs();
         let output = match &self.output {
@@ -62,11 +65,9 @@ impl ScreenCapturer {
                 .with_context(|| format!("output {name:?} not found"))?,
             None => outputs.first().context("no Wayland outputs to capture")?,
         };
-        let image = self
-            .conn
+        self.conn
             .screenshot_single_output(output, false)
-            .context("wlr-screencopy capture failed")?;
-        Ok(downscale(image))
+            .context("wlr-screencopy capture failed")
     }
 }
 
@@ -76,11 +77,15 @@ impl ScreenCapturer {
 /// (and the per-frame change check) pass through untouched.
 const MAX_LONG_SIDE: u32 = 1280;
 
-fn downscale(image: DynamicImage) -> DynamicImage {
+/// Downscale a captured frame so its long side is at most [`MAX_LONG_SIDE`]. Uses
+/// the triangle (bilinear) filter, not Lanczos3: the model re-samples to
+/// ~1056×576 regardless, so the sharper filter is imperceptible and not worth its
+/// cost (a Lanczos3 resize of a 4K frame measured ~1.5s here).
+pub fn downscale(image: DynamicImage) -> DynamicImage {
     if image.width().max(image.height()) <= MAX_LONG_SIDE {
         return image;
     }
-    image.resize(MAX_LONG_SIDE, MAX_LONG_SIDE, FilterType::Lanczos3)
+    image.resize(MAX_LONG_SIDE, MAX_LONG_SIDE, FilterType::Triangle)
 }
 
 /// A cheap content hash of a captured frame, used to skip the model call when

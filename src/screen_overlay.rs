@@ -113,10 +113,13 @@ impl ScreenOverlay {
 /// separate so the overlay never blocks (or is blocked by) the voice pipeline.
 /// Owns the persistent overlay set so positions stay stable across frames.
 ///
-/// Critically, the overlay is hidden for the instant of each screenshot. Otherwise
-/// the capture would include our own translation boxes, and the model — seeing its
-/// previous English overlays still "on screen" — would keep confirming them and
-/// never let them clear (and the boxes occlude the original text it needs to read).
+/// Critically, the overlay is hidden for the instant of the screenshot we send to
+/// the model. Otherwise the capture would include our own translation boxes, and
+/// the model — seeing its previous English overlays still "on screen" — would keep
+/// confirming them and never let them clear (and the boxes occlude the original
+/// text it needs to read). To avoid blinking on every tick, each tick first takes
+/// a cheap *un*-hidden screenshot purely for change detection; only when that
+/// differs from the previous tick do we do the hide/clean-capture/show dance.
 fn spawn_loop(
     overlay: OverlayConfig,
     cerebras: CerebrasConfig,
@@ -146,26 +149,53 @@ fn spawn_loop(
             rt.block_on(async move {
                 let mut tracked: Vec<Tracked> = Vec::new();
                 let mut next_id: u64 = 1;
-                let mut last_hash: Option<u64> = None;
+                let mut last_clean_hash: Option<u64> = None;
+                let mut last_screen_hash: Option<u64> = None;
                 loop {
+                    // Cheap change check WITHOUT hiding: our overlay boxes are
+                    // static, so a with-overlay screenshot is byte-stable as long
+                    // as the underlying screen is. If it matches the previous tick,
+                    // nothing changed — skip the whole tick, so there's no blink
+                    // while the user reads a static screen. We only pay the
+                    // hide/clean-capture cost (below) when the screen actually moves.
+                    match capturer.capture() {
+                        Ok(frame) => {
+                            let hash = screen_capture::frame_hash(&frame);
+                            if Some(hash) == last_screen_hash {
+                                tokio::time::sleep(interval).await;
+                                continue;
+                            }
+                            last_screen_hash = Some(hash);
+                        }
+                        Err(e) => {
+                            error!("overlay precheck capture failed: {e}");
+                            tokio::time::sleep(interval).await;
+                            continue;
+                        }
+                    }
+
                     let current: Vec<Overlay> = tracked.iter().map(|t| t.overlay.clone()).collect();
 
-                    // Hide our overlays, wait for that clean frame to reach the
-                    // screen, capture it, then show them again. The handshake keeps
-                    // the hidden window to ~one frame; the timeout is a fallback in
-                    // case the view isn't redrawing.
+                    // Something changed. Hide our overlays, wait for that clean
+                    // frame to reach the screen, grab the raw pixels, then
+                    // immediately show them again. Only the raw capture happens
+                    // while hidden — the downscale, encode, and model call below all
+                    // run with the overlay already back on screen, so it's blanked
+                    // for ~one frame plus the grab, not the whole tick. The
+                    // handshake keeps the hidden window to ~one frame; the timeout
+                    // is a fallback if the view isn't redrawing.
                     let _ = tx.send(OverlayEvent::Hide);
                     let _ = ready_rx.recv_timeout(Duration::from_millis(250));
                     let captured = capturer.capture();
                     let _ = tx.send(OverlayEvent::Show);
 
-                    // `Ok(None)` means the frame is byte-identical to the last one we
-                    // translated, so the overlays still apply — skip the model call
-                    // (and the JPEG encode) and leave them as they are.
+                    // The clean frame can still match the last one we translated
+                    // (e.g. the screen is unchanged but our own overlays moved, so
+                    // the pre-check tripped): skip the model call and keep the set.
                     let result = async {
-                        let image = captured?;
+                        let image = screen_capture::downscale(captured?);
                         let hash = screen_capture::frame_hash(&image);
-                        if Some(hash) == last_hash {
+                        if Some(hash) == last_clean_hash {
                             return Ok(None);
                         }
                         let uri = screen_capture::to_data_uri(&image)?;
@@ -176,7 +206,7 @@ fn spawn_loop(
 
                     match result {
                         Ok(Some((hash, update))) => {
-                            last_hash = Some(hash);
+                            last_clean_hash = Some(hash);
                             apply_update(&mut tracked, &mut next_id, update);
                             let shown = tracked.iter().map(|t| t.overlay.clone()).collect();
                             let _ = tx.send(OverlayEvent::Overlays(shown));
