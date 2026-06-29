@@ -146,6 +146,7 @@ fn spawn_loop(
             rt.block_on(async move {
                 let mut tracked: Vec<Tracked> = Vec::new();
                 let mut next_id: u64 = 1;
+                let mut last_hash: Option<u64> = None;
                 loop {
                     let current: Vec<Overlay> = tracked.iter().map(|t| t.overlay.clone()).collect();
 
@@ -158,19 +159,30 @@ fn spawn_loop(
                     let captured = capturer.capture();
                     let _ = tx.send(OverlayEvent::Show);
 
+                    // `Ok(None)` means the frame is byte-identical to the last one we
+                    // translated, so the overlays still apply — skip the model call
+                    // (and the JPEG encode) and leave them as they are.
                     let result = async {
                         let image = captured?;
+                        let hash = screen_capture::frame_hash(&image);
+                        if Some(hash) == last_hash {
+                            return Ok(None);
+                        }
                         let uri = screen_capture::to_data_uri(&image)?;
-                        translator.diff(&uri, &current).await
+                        let update = translator.diff(&uri, &current).await?;
+                        Ok::<_, anyhow::Error>(Some((hash, update)))
                     }
                     .await;
 
                     match result {
-                        Ok(update) => {
+                        Ok(Some((hash, update))) => {
+                            last_hash = Some(hash);
                             apply_update(&mut tracked, &mut next_id, update);
                             let shown = tracked.iter().map(|t| t.overlay.clone()).collect();
                             let _ = tx.send(OverlayEvent::Overlays(shown));
                         }
+                        // Unchanged frame: nothing to do, keep the current overlays.
+                        Ok(None) => {}
                         // On API/parse failure leave the overlays as they are — a
                         // transient glitch must not wipe a good set.
                         Err(e) => {
