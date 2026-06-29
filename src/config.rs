@@ -189,12 +189,21 @@ pub struct MistralConfig {
     /// Voxtral TTS model.
     #[serde(default = "default_tts_model")]
     pub tts_model: String,
-    /// TTS voice id. The Voxtral TTS API requires a voice on every request
-    /// (there is no server-side default). When left empty, Joya auto-selects
-    /// the first id returned by the provider's `/audio/voices` endpoint on
-    /// the first utterance and caches it. Set this to pin a specific voice.
+    /// Default TTS voice id, used when no per-language voice in `tts_voices`
+    /// matches. The Voxtral TTS API requires a voice on every request (there is
+    /// no server-side default). When this is empty and no per-language voice
+    /// applies, Joya auto-selects the first id returned by the provider's
+    /// `/audio/voices` endpoint on the first utterance and caches it. Set this
+    /// to pin a specific voice.
     #[serde(default)]
     pub tts_voice: String,
+    /// Per-language TTS voice ids, keyed by language name (matching
+    /// `languages.source`/`languages.target`, e.g. `English`, `Spanish`).
+    /// Voxtral voices are language-specific, so each direction looks up the
+    /// voice for the language it speaks into (its target language). When there's
+    /// no entry for that language, Joya falls back to `tts_voice`.
+    #[serde(default)]
+    pub tts_voices: std::collections::HashMap<String, String>,
 }
 
 /// Cerebras (OpenAI-compatible) endpoint for the Gemma 4 translation step.
@@ -299,6 +308,7 @@ impl Default for MistralConfig {
             stt_target_delay_ms: default_stt_delay_ms(),
             tts_model: default_tts_model(),
             tts_voice: String::new(),
+            tts_voices: std::collections::HashMap::new(),
         }
     }
 }

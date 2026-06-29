@@ -97,8 +97,9 @@ async fn consume(
     ui_tx: Sender<UiEvent>,
 ) {
     let direction = config.direction;
+    let language = config.languages.target.clone();
     let translator = Translator::new(config.cerebras, &config.languages);
-    let tts = Tts::new(config.mistral);
+    let tts = Tts::new(config.mistral, language);
     let player = config.player;
 
     while let Ok(event) = stt_rx.recv_async().await {

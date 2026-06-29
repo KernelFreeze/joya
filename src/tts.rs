@@ -22,27 +22,39 @@ pub struct TtsAudio {
 pub struct Tts {
     client: reqwest::Client,
     config: MistralConfig,
+    /// Language this pipeline speaks into (its target language), used to pick a
+    /// voice from `config.tts_voices`. Voxtral voices are language-specific.
+    language: String,
     /// Lazily discovered voice id, cached after the first `/audio/voices` lookup
-    /// when `config.tts_voice` is empty. The Voxtral TTS API has no default voice:
-    /// a `voice` must be sent on every request, so we pick the first available
-    /// one and remember it rather than re-querying per utterance.
+    /// when no configured voice applies. The Voxtral TTS API has no default
+    /// voice: a `voice` must be sent on every request, so we pick the first
+    /// available one and remember it rather than re-querying per utterance.
     resolved_voice: OnceLock<Option<String>>,
 }
 
 impl Tts {
-    pub fn new(config: MistralConfig) -> Self {
+    pub fn new(config: MistralConfig, language: String) -> Self {
         Self {
             client: reqwest::Client::new(),
             config,
+            language,
             resolved_voice: OnceLock::new(),
         }
     }
 
-    /// Returns the voice id to send on the next request. If `tts_voice` is set
-    /// in config, that wins; otherwise the first id from `/audio/voices` is
-    /// fetched once and cached. `None` means discovery failed (the caller gets
-    /// the API's own error message, which is the most actionable one).
+    /// Returns the voice id to send on the next request. A per-language voice in
+    /// `tts_voices` wins, then the `tts_voice` default; otherwise the first id
+    /// from `/audio/voices` is fetched once and cached. `None` means discovery
+    /// failed (the caller gets the API's own error message, the most actionable
+    /// one).
     async fn resolve_voice(&self) -> Option<String> {
+        if let Some(voice) = self.config.tts_voices.get(&self.language) {
+            let voice = voice.trim();
+            if !voice.is_empty() {
+                return Some(voice.to_owned());
+            }
+        }
+
         let configured = self.config.tts_voice.trim();
         if !configured.is_empty() {
             return Some(configured.to_owned());
@@ -81,8 +93,9 @@ impl Tts {
         let voice = self.resolve_voice().await.ok_or_else(|| {
             anyhow::anyhow!(
                 "No TTS voice configured and none could be auto-discovered. \
-                 Set `mistral.tts_voice` to a voice id (list them with GET \
-                 `{}/audio/voices`).",
+                 Set `mistral.tts_voice`, or `mistral.tts_voices.{}`, to a voice \
+                 id (list them with GET `{}/audio/voices`).",
+                self.language,
                 self.config.base_url.trim_end_matches('/')
             )
         })?;
