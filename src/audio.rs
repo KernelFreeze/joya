@@ -15,7 +15,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use flume::{Receiver, Sender};
 use rubato::audioadapter_buffers::direct::SequentialSlice;
 use rubato::{Fft, FixedSync, Resampler};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use voice_activity_detector::VoiceActivityDetector;
 
 use crate::config::Direction;
@@ -58,8 +58,15 @@ pub struct CaptureHandle {
 fn make_resampler(native_sample_rate: u32) -> Option<Fft<f32>> {
     if native_sample_rate != 16000 {
         Some(
-            Fft::<f32>::new(native_sample_rate as usize, 16000, 1024, 1, 1, FixedSync::Input)
-                .expect("failed to create resampler"),
+            Fft::<f32>::new(
+                native_sample_rate as usize,
+                16000,
+                1024,
+                1,
+                1,
+                FixedSync::Input,
+            )
+            .expect("failed to create resampler"),
         )
     } else {
         None
@@ -96,8 +103,8 @@ fn resample_into(
 
             let input_adapter =
                 SequentialSlice::new(&input_vec, 1, input_needed).expect("input adapter");
-            let mut output_adapter =
-                SequentialSlice::new_mut(&mut output_vec, 1, output_frames).expect("output adapter");
+            let mut output_adapter = SequentialSlice::new_mut(&mut output_vec, 1, output_frames)
+                .expect("output adapter");
 
             match resampler.process_into_buffer(&input_adapter, &mut output_adapter, None) {
                 Ok((_consumed, produced)) => resampled_buffer.extend(&output_vec[..produced]),
@@ -183,9 +190,13 @@ fn vad_worker(
                     quiet_warned = true;
                 }
             } else {
-                info!(
+                debug!(
                     "[{tag}] input level: rms={rms:.4} peak={window_peak:.4}{}",
-                    if window_peak < QUIET_LEVEL { " (quiet — below typical speech)" } else { "" },
+                    if window_peak < QUIET_LEVEL {
+                        " (quiet — below typical speech)"
+                    } else {
+                        ""
+                    },
                 );
                 quiet_warned = false;
                 dead_warned = false;
@@ -227,8 +238,10 @@ fn vad_worker(
                     return;
                 }
                 if silence_counter >= SILENCE_CHUNKS_FOR_RESET {
-                    info!("[{tag}] Speech ended, flushing utterance",
-                        tag = direction_tag(direction));
+                    info!(
+                        "[{tag}] Speech ended, flushing utterance",
+                        tag = direction_tag(direction)
+                    );
                     if seg_tx.send(Segment::EndOfUtterance).is_err() {
                         return;
                     }
@@ -245,14 +258,14 @@ fn vad_worker(
             }
         }
     }
-    info!("[{tag}] Audio channel closed, VAD worker exiting", tag = direction_tag(direction));
+    info!(
+        "[{tag}] Audio channel closed, VAD worker exiting",
+        tag = direction_tag(direction)
+    );
 }
 
 #[allow(deprecated)]
-fn start_capture(
-    direction: Direction,
-    device: cpal::Device,
-) -> anyhow::Result<CaptureHandle> {
+fn start_capture(direction: Direction, device: cpal::Device) -> anyhow::Result<CaptureHandle> {
     let config = device.default_input_config()?;
     let native_sample_rate = config.sample_rate();
     let channels = config.channels() as usize;
@@ -292,14 +305,22 @@ fn start_capture(
             };
             let _ = audio_tx.try_send(mono);
         },
-        move |err| error!("[{tag}] Audio stream error: {err}", tag = direction_tag(direction)),
+        move |err| {
+            error!(
+                "[{tag}] Audio stream error: {err}",
+                tag = direction_tag(direction)
+            )
+        },
         None,
     )?;
 
     stream.play()?;
     std::mem::forget(stream);
 
-    Ok(CaptureHandle { segments: seg_rx, paused })
+    Ok(CaptureHandle {
+        segments: seg_rx,
+        paused,
+    })
 }
 
 /// Start capturing the device named `device_name`, or the default device for
@@ -383,7 +404,10 @@ pub fn list_audio_devices() {
 
     println!(
         "Input devices{}",
-        default_input.as_deref().map(|n| format!(" (default: {n})")).unwrap_or_default()
+        default_input
+            .as_deref()
+            .map(|n| format!(" (default: {n})"))
+            .unwrap_or_default()
     );
     if let Ok(devices) = host.input_devices() {
         for device in devices {
@@ -404,7 +428,10 @@ pub fn list_audio_devices() {
 
     println!(
         "\nOutput devices{}",
-        default_output.as_deref().map(|n| format!(" (default: {n})")).unwrap_or_default()
+        default_output
+            .as_deref()
+            .map(|n| format!(" (default: {n})"))
+            .unwrap_or_default()
     );
     if let Ok(devices) = host.output_devices() {
         for device in devices {
@@ -423,9 +450,13 @@ pub fn list_audio_devices() {
         }
     }
 
-    println!("\nIn `relay` mode, `capture_device: null` uses the default OUTPUT (headphone monitor).");
+    println!(
+        "\nIn `relay` mode, `capture_device: null` uses the default OUTPUT (headphone monitor)."
+    );
     println!("In `self` mode,   `capture_device: null` uses the default INPUT  (microphone).");
     println!("When several devices share a name (common on PipeWire — e.g. multiple Scarlett");
-    println!("inputs all read \"Scarlett Solo USB\"), set `capture_device` to the `id:` line above");
+    println!(
+        "inputs all read \"Scarlett Solo USB\"), set `capture_device` to the `id:` line above"
+    );
     println!("to target the exact node.");
 }
