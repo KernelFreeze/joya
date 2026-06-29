@@ -39,17 +39,29 @@ pub enum Stage {
 #[derive(Clone, Debug)]
 pub enum UiEvent {
     /// Live partial transcript of the current utterance.
-    SourcePartial { direction: Direction, text: String },
+    SourcePartial {
+        direction: Direction,
+        text: String,
+    },
     /// Completed source transcript.
-    SourceFinal { direction: Direction, text: String },
+    SourceFinal {
+        direction: Direction,
+        text: String,
+    },
     /// Completed translation.
     Translation {
         direction: Direction,
         source: String,
         translated: String,
     },
-    Stage { direction: Direction, stage: Stage },
-    Error { direction: Direction, message: String },
+    Stage {
+        direction: Direction,
+        stage: Stage,
+    },
+    Error {
+        direction: Direction,
+        message: String,
+    },
 }
 
 /// Everything one pipeline thread needs. Splitting this out from `Config` lets
@@ -88,14 +100,13 @@ async fn run(config: PipelineConfig, segments: Receiver<Segment>, ui_tx: Sender<
     let consume_fut = consume(config, stt_rx, ui_tx.clone());
     // Joined (not spawned) so `Player` need not be `Send`.
     futures::future::join(stt_fut, consume_fut).await;
-    let _ = ui_tx.send(UiEvent::Stage { direction, stage: Stage::Listening });
+    let _ = ui_tx.send(UiEvent::Stage {
+        direction,
+        stage: Stage::Listening,
+    });
 }
 
-async fn consume(
-    config: PipelineConfig,
-    stt_rx: Receiver<SttEvent>,
-    ui_tx: Sender<UiEvent>,
-) {
+async fn consume(config: PipelineConfig, stt_rx: Receiver<SttEvent>, ui_tx: Sender<UiEvent>) {
     let direction = config.direction;
     let language = config.languages.target.clone();
     let translator = Translator::new(config.cerebras, &config.languages);
@@ -105,12 +116,21 @@ async fn consume(
     while let Ok(event) = stt_rx.recv_async().await {
         match event {
             SttEvent::Partial(text) => {
-                let _ = ui_tx.send(UiEvent::Stage { direction, stage: Stage::Transcribing });
+                let _ = ui_tx.send(UiEvent::Stage {
+                    direction,
+                    stage: Stage::Transcribing,
+                });
                 let _ = ui_tx.send(UiEvent::SourcePartial { direction, text });
             }
             SttEvent::Final(source) => {
-                let _ = ui_tx.send(UiEvent::SourceFinal { direction, text: source.clone() });
-                let _ = ui_tx.send(UiEvent::Stage { direction, stage: Stage::Translating });
+                let _ = ui_tx.send(UiEvent::SourceFinal {
+                    direction,
+                    text: source.clone(),
+                });
+                let _ = ui_tx.send(UiEvent::Stage {
+                    direction,
+                    stage: Stage::Translating,
+                });
 
                 match translator.translate(&source).await {
                     Ok(translation) => {
@@ -119,7 +139,10 @@ async fn consume(
                             source,
                             translated: translation.translated.clone(),
                         });
-                        let _ = ui_tx.send(UiEvent::Stage { direction, stage: Stage::Speaking });
+                        let _ = ui_tx.send(UiEvent::Stage {
+                            direction,
+                            stage: Stage::Speaking,
+                        });
                         match tts.synthesize(&translation.translated).await {
                             Ok(audio) => player.submit(&audio),
                             Err(e) => {
@@ -133,11 +156,17 @@ async fn consume(
                     }
                     Err(e) => {
                         error!("Translation failed ({direction:?}): {e}");
-                        let _ = ui_tx.send(UiEvent::Error { direction, message: e.to_string() });
+                        let _ = ui_tx.send(UiEvent::Error {
+                            direction,
+                            message: e.to_string(),
+                        });
                     }
                 }
 
-                let _ = ui_tx.send(UiEvent::Stage { direction, stage: Stage::Listening });
+                let _ = ui_tx.send(UiEvent::Stage {
+                    direction,
+                    stage: Stage::Listening,
+                });
             }
         }
     }

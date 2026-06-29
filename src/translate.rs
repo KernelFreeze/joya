@@ -33,7 +33,11 @@ impl Translator {
             from = from,
             target = languages.target,
         );
-        Self { client: reqwest::Client::new(), config, system_prompt }
+        Self {
+            client: reqwest::Client::new(),
+            config,
+            system_prompt,
+        }
     }
 
     pub async fn translate(&self, text: &str) -> anyhow::Result<Translation> {
@@ -47,7 +51,10 @@ impl Translator {
             "stream": false,
         });
 
-        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/chat/completions",
+            self.config.base_url.trim_end_matches('/')
+        );
         let resp = self
             .client
             .post(url)

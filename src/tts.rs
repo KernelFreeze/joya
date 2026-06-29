@@ -64,7 +64,10 @@ impl Tts {
             return cached.clone();
         }
 
-        let url = format!("{}/audio/voices", self.config.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/audio/voices",
+            self.config.base_url.trim_end_matches('/')
+        );
         let resp = self
             .client
             .get(url)
@@ -107,7 +110,10 @@ impl Tts {
             "voice": voice,
         });
 
-        let url = format!("{}/audio/speech", self.config.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/audio/speech",
+            self.config.base_url.trim_end_matches('/')
+        );
         let resp = self
             .client
             .post(url)
@@ -210,5 +216,8 @@ fn decode_wav(bytes: &[u8]) -> anyhow::Result<TtsAudio> {
             .collect()
     };
 
-    Ok(TtsAudio { samples, sample_rate })
+    Ok(TtsAudio {
+        samples,
+        sample_rate,
+    })
 }
