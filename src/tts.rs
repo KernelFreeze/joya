@@ -5,6 +5,8 @@
 //! provider returns either raw audio bytes or JSON with a base64 `audio_data`
 //! field; both are handled.
 
+use std::sync::OnceLock;
+
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::json;
@@ -20,22 +22,77 @@ pub struct TtsAudio {
 pub struct Tts {
     client: reqwest::Client,
     config: MistralConfig,
+    /// Lazily discovered voice id, cached after the first `/audio/voices` lookup
+    /// when `config.tts_voice` is empty. The Voxtral TTS API has no default voice:
+    /// a `voice` must be sent on every request, so we pick the first available
+    /// one and remember it rather than re-querying per utterance.
+    resolved_voice: OnceLock<Option<String>>,
 }
 
 impl Tts {
     pub fn new(config: MistralConfig) -> Self {
-        Self { client: reqwest::Client::new(), config }
+        Self {
+            client: reqwest::Client::new(),
+            config,
+            resolved_voice: OnceLock::new(),
+        }
+    }
+
+    /// Returns the voice id to send on the next request. If `tts_voice` is set
+    /// in config, that wins; otherwise the first id from `/audio/voices` is
+    /// fetched once and cached. `None` means discovery failed (the caller gets
+    /// the API's own error message, which is the most actionable one).
+    async fn resolve_voice(&self) -> Option<String> {
+        let configured = self.config.tts_voice.trim();
+        if !configured.is_empty() {
+            return Some(configured.to_owned());
+        }
+
+        if let Some(cached) = self.resolved_voice.get() {
+            return cached.clone();
+        }
+
+        let url = format!("{}/audio/voices", self.config.base_url.trim_end_matches('/'));
+        let resp = self
+            .client
+            .get(url)
+            .bearer_auth(&self.config.api_key)
+            .send()
+            .await
+            .ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let value: serde_json::Value = resp.json().await.ok()?;
+        let first = value
+            .get("items")
+            .and_then(|items| items.get(0))
+            .and_then(|v| v.get("id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_owned());
+        // `set` may race another caller; whichever wins, the result is the same.
+        let _ = self.resolved_voice.set(first.clone());
+        first
     }
 
     pub async fn synthesize(&self, text: &str) -> anyhow::Result<TtsAudio> {
-        let mut body = json!({
+        // The Voxtral TTS API requires a voice on every request (there is no
+        // server-side default). Resolve one from config or auto-discover it.
+        let voice = self.resolve_voice().await.ok_or_else(|| {
+            anyhow::anyhow!(
+                "No TTS voice configured and none could be auto-discovered. \
+                 Set `mistral.tts_voice` to a voice id (list them with GET \
+                 `{}/audio/voices`).",
+                self.config.base_url.trim_end_matches('/')
+            )
+        })?;
+
+        let body = json!({
             "model": self.config.tts_model,
             "input": text,
             "response_format": "wav",
+            "voice": voice,
         });
-        if !self.config.tts_voice.trim().is_empty() {
-            body["voice_id"] = json!(self.config.tts_voice);
-        }
 
         let url = format!("{}/audio/speech", self.config.base_url.trim_end_matches('/'));
         let resp = self
