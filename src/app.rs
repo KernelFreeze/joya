@@ -4,7 +4,6 @@ use gpui::{
     App, Context, FocusHandle, Focusable, FontWeight, ScrollHandle, Window, div, prelude::*, px,
     rgba,
 };
-use gpui_component::ActiveTheme;
 use tracing::{info, warn};
 
 use crate::audio::{self, CaptureHandle};
@@ -50,6 +49,7 @@ pub struct JoyaApp {
     captures: Vec<CaptureHandle>,
     scroll_handle: ScrollHandle,
     focus_handle: FocusHandle,
+    palette: Palette,
 }
 
 impl JoyaApp {
@@ -127,6 +127,10 @@ impl JoyaApp {
             states.insert(*d, DirectionState::default());
         }
 
+        let mode = dark_light::detect().unwrap_or(dark_light::Mode::Unspecified);
+        info!("Detected OS appearance: {mode:?}");
+        let palette = Palette::for_mode(mode);
+
         Self {
             config,
             entries: Vec::new(),
@@ -135,6 +139,7 @@ impl JoyaApp {
             captures,
             scroll_handle: ScrollHandle::new(),
             focus_handle,
+            palette,
         }
     }
 
@@ -287,6 +292,46 @@ impl DirectionPalette {
     }
 }
 
+/// Neutral surface and text tones that flip with the OS appearance. The
+/// per-direction gold/teal accents are appearance-independent (they read on
+/// both light and dark), so only these greys change. Resolved once at startup
+/// from `dark_light::detect()`.
+#[derive(Clone, Copy)]
+struct Palette {
+    /// Translucent panel background.
+    surface: gpui::Rgba,
+    /// Primary text.
+    text: gpui::Rgba,
+    /// Secondary text — the header language line.
+    text_dim: gpui::Rgba,
+    /// Muted text — original source transcripts under each translation.
+    text_muted: gpui::Rgba,
+    /// Faint text — stage separators and the model name.
+    text_faint: gpui::Rgba,
+}
+
+impl Palette {
+    fn for_mode(mode: dark_light::Mode) -> Self {
+        match mode {
+            dark_light::Mode::Light => Self {
+                surface: rgba(0xF7F7FAF2),
+                text: rgba(0x1E1E2EFF),
+                text_dim: rgba(0x15151ECC),
+                text_muted: rgba(0x15151E99),
+                text_faint: rgba(0x15151E66),
+            },
+            // Dark and Unspecified both keep the original dark theme.
+            _ => Self {
+                surface: rgba(0x1E1E2EE6),
+                text: rgba(0xFFFFFFFF),
+                text_dim: rgba(0xFFFFFFAA),
+                text_muted: rgba(0xFFFFFF80),
+                text_faint: rgba(0xFFFFFF66),
+            },
+        }
+    }
+}
+
 impl Focusable for JoyaApp {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -294,8 +339,8 @@ impl Focusable for JoyaApp {
 }
 
 impl Render for JoyaApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let fg = cx.theme().foreground;
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let neutral = self.palette;
 
         // Header: languages on the left, per-direction status pills on the right.
         let mut status = div().flex().items_center().gap_3();
@@ -311,14 +356,14 @@ impl Render for JoyaApp {
                     .child(div().text_color(palette.accent).child(label))
                     .child(
                         div()
-                            .text_color(rgba(0xFFFFFF66))
+                            .text_color(neutral.text_faint)
                             .child(format!("· {stage}")),
                     ),
             );
         }
         status = status.child(
             div()
-                .text_color(rgba(0xFFFFFF66))
+                .text_color(neutral.text_faint)
                 .child(format!("· {}", self.config.cerebras.model)),
         );
 
@@ -330,7 +375,7 @@ impl Render for JoyaApp {
             .px_3()
             .py_1()
             .text_sm()
-            .text_color(rgba(0xFFFFFFAA))
+            .text_color(neutral.text_dim)
             .gap_12()
             .child(format!(
                 "{} → {}",
@@ -372,7 +417,7 @@ impl Render for JoyaApp {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgba(0xFFFFFF80))
+                            .text_color(neutral.text_muted)
                             .child(entry.source.clone()),
                     ),
             );
@@ -448,11 +493,11 @@ impl Render for JoyaApp {
 
         div()
             .track_focus(&self.focus_handle)
-            .bg(rgba(0x1E1E2EE6))
+            .bg(neutral.surface)
             .size_full()
             .shadow_lg()
             .text_xl()
-            .text_color(fg)
+            .text_color(neutral.text)
             .flex()
             .flex_col()
             .child(header)
