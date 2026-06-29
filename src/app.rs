@@ -274,8 +274,8 @@ impl DirectionPalette {
     fn for_direction(direction: Direction) -> Self {
         match direction {
             Direction::Relay => Self {
-                accent: rgba(0xFFD700FF),
-                fill: rgba(0xFFD70030),
+                accent: rgba(0x7C3AEDFF),
+                fill: rgba(0x7C3AED30),
             },
             Direction::SelfMode => Self {
                 accent: rgba(0x2DD4BFFF),
@@ -293,7 +293,7 @@ impl DirectionPalette {
 }
 
 /// Neutral surface and text tones that flip with the OS appearance. The
-/// per-direction gold/teal accents are appearance-independent (they read on
+/// per-direction purple/teal accents are appearance-independent (they read on
 /// both light and dark), so only these greys change. Resolved once at startup
 /// from `dark_light::detect()`.
 #[derive(Clone, Copy)]
